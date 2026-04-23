@@ -1,0 +1,3 @@
+[submodule "SIMPAC-2024-195"]
+	path = SIMPAC-2024-195
+	url = https://github.com/miichenry/pyHVInv.git
