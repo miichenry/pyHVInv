@@ -57,8 +57,10 @@ from hv_dc_invert.plot import plot_results, print_summary
 # =============================================================================
 
 # ---- Data files ----
-HV_FILE = "Example_HV_DC/HV3layer.txt"           # set to None to skip
-DC_FILE = "Example_HV_DC/DC_Ray_fund_3layer.txt"  # set to None to skip
+HV_FILE = "apollo/hvsr_38.3797_14.97612.dat"           # set to None to skip
+DC_FILE = "apollo/disp_38.3797_14.97612_td.dat"  # set to None to skip
+# NOTE: DC file must be in frequency (Hz) and velocity (m/s); convert if your
+#       source data uses period (s) and/or km/s before using.
 
 # ---- HVf executable path ----
 # Auto-detect OS; override here if needed:
@@ -103,10 +105,10 @@ ALLOW_LVZ_VS = True    # allow low-velocity zones in Vs
 ALLOW_LVZ_VP = True    # allow low-velocity zones in Vp
 
 # ---- Forward model settings ----
-N_RAYLEIGH_MODES = 3    # Rayleigh modes for HV calculation
-N_LOVE_MODES = 3        # Love modes for HV calculation
-N_WAVENUMBERS = 50      # integration points for body waves (0 = skip body waves)
-APSV = 1e-4             # imaginary part of freq. to stabilize PSV (body waves)
+N_RAYLEIGH_MODES = 5    # Rayleigh modes for HV calculation
+N_LOVE_MODES = 5        # Love modes for HV calculation
+N_WAVENUMBERS = 1000      # integration points for body waves (0 = skip body waves)
+APSV = 1e-3             # imaginary part of freq. to stabilize PSV (body waves)
 
 # ---- Inversion settings ----
 RANDOM_SEED = 42        # set to None for non-reproducible runs
@@ -239,6 +241,7 @@ def main():
     if DC_FILE:
         dc_path = str(base / DC_FILE)
         dc_freq, dc_vel, dc_std = load_data(dc_path, DEFAULT_STD_PCT)
+        dc_freq, dc_vel, dc_std = 1.0 / dc_freq, dc_vel * 1000.0, dc_std * 1000.0
         obs.dc_freq = dc_freq
         obs.dc_vel = dc_vel
         obs.dc_std = dc_std
