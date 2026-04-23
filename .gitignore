@@ -4,5 +4,6 @@ apollo/
 observed/
 .DS_Store
 apollo_converted/
+apollo/
 full_dataset/
 results/
