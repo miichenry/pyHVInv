@@ -77,6 +77,175 @@ def make_bounds(
     return var
 
 
+def validate_and_fix_bounds(
+    var: np.ndarray,
+    allow_lvz_vs: bool = True,
+    allow_lvz_vp: bool = True,
+) -> np.ndarray:
+    """
+    Check and fix parameter bounds compatibility, matching the HV-INV ini2A.m logic.
+
+    Three constraints are enforced iteratively until all pass:
+
+    1. Poisson compatibility — when LVZ in Vp is allowed (primary variable = Vs):
+           Vs_min = max(Vs_min, Vp_min * sqrt((1-2*nu_max) / (2*(1-nu_max))))
+           Vs_max = min(Vs_max, Vp_max * sqrt((1-2*nu_min) / (2*(1-nu_min))))
+       When LVZ in Vs is allowed (primary variable = Vp):
+           Vp_min = max(Vp_min, Vs_min * sqrt(2*(1-nu_min) / (1-2*nu_min)))
+           Vp_max = min(Vp_max, Vs_max * sqrt(2*(1-nu_max) / (1-2*nu_max)))
+
+    2. Monotonicity propagation (when LVZ is forbidden) — bounds of adjacent
+       layers are made mutually consistent:
+           upper bound of layer k <= upper bound of layer k+1
+           lower bound of layer k+1 >= lower bound of layer k
+
+    3. Collapsed interval handling — if after clipping the interval collapses
+       (min >= max), both bounds are pinned to their midpoint so the layer
+       is effectively fixed.
+
+    The loop repeats until all three constraints are simultaneously satisfied,
+    matching the `while ~all_correct` loop in ini2A.m.
+
+    Parameters
+    ----------
+    var : ndarray, shape (n_layers, 15)
+        Bounds matrix from make_bounds().
+    allow_lvz_vs : bool
+        If False, Vs must increase with depth (monotonicity enforced).
+    allow_lvz_vp : bool
+        If False, Vp must increase with depth (monotonicity enforced).
+
+    Returns
+    -------
+    var : ndarray
+        Corrected bounds matrix.
+    """
+    var = var.copy()
+    n_layers = var.shape[0]
+    epsil_vel = 1.0   # collapsed interval threshold (m/s), matches MATLAB epsil=1e0
+    epsil_check = 1e-3  # convergence threshold, matches MATLAB epsil=1e-3
+
+    varoriginal = var.copy()
+    not_collapsed = np.ones(n_layers, dtype=bool)
+
+    for iteration in range(200):  # safety cap
+        all_correct = True
+
+        # ------------------------------------------------------------------
+        # 1. Poisson compatibility
+        # ------------------------------------------------------------------
+        if allow_lvz_vp:
+            # Primary variable is Vs; clip Vs to be compatible with Vp + Poisson
+            nu_min = var[:, 12]
+            nu_max = var[:, 13]
+            vs_min_compat = var[:, 3] * np.sqrt((1 - 2 * nu_max) / (2 * (1 - nu_max)))
+            vs_max_compat = var[:, 5] * np.sqrt((1 - 2 * nu_min) / (2 * (1 - nu_min)))  # col 5 = Vp_max
+
+            var[not_collapsed, 6] = np.maximum(var[not_collapsed, 6], vs_min_compat[not_collapsed])
+            var[not_collapsed, 7] = np.minimum(var[not_collapsed, 7], vs_max_compat[not_collapsed])
+            var[not_collapsed, 8] = var[not_collapsed, 7] - var[not_collapsed, 6]
+
+            # Collapsed interval: pin to midpoint
+            collapsed = not_collapsed & (var[:, 8] < epsil_vel)
+            if collapsed.any():
+                mid = (var[collapsed, 6] + var[collapsed, 7]) / 2
+                var[collapsed, 6] = mid
+                var[collapsed, 7] = mid
+                var[collapsed, 8] = 0.0
+                not_collapsed[collapsed] = False
+
+            # Convergence check: are all effective Vs ranges now consistent?
+            effective_min = np.maximum(var[:, 6], vs_min_compat)
+            effective_max = np.minimum(var[:, 7], vs_max_compat)
+            if np.any(effective_min - effective_max > epsil_check):
+                all_correct = False
+
+        else:
+            # Primary variable is Vp; clip Vp to be compatible with Vs + Poisson
+            nu_min = var[:, 12]
+            nu_max = var[:, 13]
+            vp_min_compat = var[:, 6] * np.sqrt((2 * (1 - nu_min)) / (1 - 2 * nu_min))
+            vp_max_compat = var[:, 7] * np.sqrt((2 * (1 - nu_max)) / (1 - 2 * nu_max))
+
+            var[not_collapsed, 3] = np.maximum(var[not_collapsed, 3], vp_min_compat[not_collapsed])
+            var[not_collapsed, 4] = np.minimum(var[not_collapsed, 4], vp_max_compat[not_collapsed])
+            var[not_collapsed, 5] = var[not_collapsed, 4] - var[not_collapsed, 3]
+
+            # Collapsed interval: pin to midpoint
+            collapsed = not_collapsed & (var[:, 5] < epsil_vel)
+            if collapsed.any():
+                mid = (var[collapsed, 3] + var[collapsed, 4]) / 2
+                var[collapsed, 3] = mid
+                var[collapsed, 4] = mid
+                var[collapsed, 5] = 0.0
+                not_collapsed[collapsed] = False
+
+            effective_min = np.maximum(var[:, 3], vp_min_compat)
+            effective_max = np.minimum(var[:, 4], vp_max_compat)
+            if np.any(effective_min - effective_max > epsil_check):
+                all_correct = False
+
+        # ------------------------------------------------------------------
+        # 2. Monotonicity propagation (when LVZ forbidden)
+        # ------------------------------------------------------------------
+        if not allow_lvz_vs:
+            # Upper Vs bound of layer k <= upper bound of layer k+1
+            for k in range(n_layers - 2, -1, -1):
+                var[k, 7] = min(var[k, 7], var[k + 1, 7])
+            # Lower Vs bound of layer k >= lower bound of layer k-1
+            for k in range(1, n_layers):
+                var[k, 6] = max(var[k, 6], var[k - 1, 6])
+            var[:, 8] = var[:, 7] - var[:, 6]
+
+            if (np.any(np.diff(var[:, 6]) < 0) or np.any(np.diff(var[:, 7]) < 0)):
+                all_correct = False
+
+        if not allow_lvz_vp:
+            # Same for Vp
+            for k in range(n_layers - 2, -1, -1):
+                var[k, 4] = min(var[k, 4], var[k + 1, 4])
+            for k in range(1, n_layers):
+                var[k, 3] = max(var[k, 3], var[k - 1, 3])
+            var[:, 5] = var[:, 4] - var[:, 3]
+
+            if (np.any(np.diff(var[:, 3]) < 0) or np.any(np.diff(var[:, 4]) < 0)):
+                all_correct = False
+
+        if all_correct:
+            break
+
+    # ------------------------------------------------------------------
+    # Report changes
+    # ------------------------------------------------------------------
+    changed_cols = np.any(var != varoriginal, axis=0)
+    any_issue = changed_cols.any()
+
+    if any_issue:
+        layer_labels = [f"layer {k+1}" if k < n_layers - 1 else "halfspace"
+                        for k in range(n_layers)]
+        for k in range(n_layers):
+            msgs = []
+            if var[k, 6] != varoriginal[k, 6] or var[k, 7] != varoriginal[k, 7]:
+                msgs.append(
+                    f"  Vs: [{varoriginal[k,6]:.1f}, {varoriginal[k,7]:.1f}] "
+                    f"→ [{var[k,6]:.1f}, {var[k,7]:.1f}] m/s"
+                )
+            if var[k, 3] != varoriginal[k, 3] or var[k, 4] != varoriginal[k, 4]:
+                msgs.append(
+                    f"  Vp: [{varoriginal[k,3]:.1f}, {varoriginal[k,4]:.1f}] "
+                    f"→ [{var[k,3]:.1f}, {var[k,4]:.1f}] m/s"
+                )
+            if msgs:
+                print(f"WARNING ({layer_labels[k]}): bounds updated to satisfy constraints:")
+                for m in msgs:
+                    print(m)
+        print("Some values in intervals were incompatible with other constraints — ranges updated.")
+    else:
+        print("Bounds check passed: all ranges are compatible.")
+
+    return var
+
+
 def _vs_from_vp_poisson(vp: float, nu: float) -> float:
     """Compute Vs from Vp and Poisson's ratio."""
     return vp * np.sqrt((1 - 2 * nu) / (2 * (1 - nu)))

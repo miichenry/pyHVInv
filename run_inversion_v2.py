@@ -115,14 +115,14 @@ APSV = 1e-4             # imaginary part of freq. to stabilize PSV (body waves)
 RANDOM_SEED = 42        # set to None for non-reproducible runs
 
 # Stage 1: initial random search
-N_RANDOM = 500          # number of random models in initial search
+N_RANDOM = 50          # number of random models in initial search
 
 # Stage 2: choose method — 'montecarlo' or 'sa' (simulated annealing)
 INVERSION_METHOD = "montecarlo"
 
 # Monte Carlo / SA shared
-N_ITERATIONS = 2000     # iterations per stage
-PERTURBATION_PCT = 5.0  # perturbation range (% of each parameter's range)
+N_ITERATIONS = 3000     # iterations per stage
+PERTURBATION_PCT = 10.0  # perturbation range (% of each parameter's range)
 
 # SA-specific
 SA_N_TEMPERATURES = 10  # number of temperature reduction steps

@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 apollo/
 observed/
+.DS_Store
+apollo_converted/
+full_dataset/
+results/

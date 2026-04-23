@@ -73,17 +73,18 @@ def plot_results(
     ax = axes[ax_idx]
     ax_idx += 1
 
-    # Plot ensemble
-    for i in idx:
+    # Plot ensemble (Vs and Vp in grey)
+    for k, i in enumerate(idx):
         m = result.all_models[i]
         d, vs, vp = model_to_depth_profile(m, max_depth)
-        ax.plot(vs, d, color="0.75", lw=0.5, alpha=0.4)
+        label_vs = "Ensemble Vs" if k == 0 else None
+        label_vp = "Ensemble Vp" if k == 0 else None
+        ax.plot(vs, d, color="0.75", lw=0.5, alpha=0.4, label=label_vs)
+        ax.plot(vp, d, color="lightblue", lw=0.5, alpha=0.4, label=label_vp)
 
     # Plot best model Vs and Vp
-    d, vs, _ = model_to_depth_profile(best, max_depth)
+    d, vs, vp = model_to_depth_profile(best, max_depth)
     ax.plot(vs, d, "r-", lw=2.5, label="Best Vs")
-
-    _, _, vp = model_to_depth_profile(best, max_depth)
     ax.plot(vp, d, "b--", lw=1.5, label="Best Vp", alpha=0.7)
 
     ax.set_xlabel("Velocity (m/s)")

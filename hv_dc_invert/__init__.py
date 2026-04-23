@@ -10,6 +10,7 @@ from .inversion import ObservedCurves, InversionResult
 from .model import make_bounds
 from .forward import compute_hv, compute_dc
 from .plot import plot_results, print_summary
+from .quality_matrix import plot_quality_matrix
 
 __all__ = [
     "ObservedCurves",
@@ -19,4 +20,5 @@ __all__ = [
     "compute_dc",
     "plot_results",
     "print_summary",
+    "plot_quality_matrix",
 ]
